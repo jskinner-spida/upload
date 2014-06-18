@@ -10,9 +10,11 @@ var express      = require('express'),
     assert       = require('assert');
     csv          = require('csv'),
     _            = require('underscore'),
+    http         = require('http'),
+    async = require('async')
     CSVConverter = require("./node_modules/csvtojson/libs/core/csvConverter.js");
-var data;
-var connection = mysql.createConnection({
+var data, queue, stream;
+var pool = mysql.createPool({
     host : 'localhost',
     port : 8889,
     database: 'partsxpo',
@@ -22,12 +24,13 @@ var connection = mysql.createConnection({
 var sql = "INSERT INTO products (sku, name) VALUES (?)";
 
 // Connect to mySql (if there is an erro, report it and terminate de request)
-connection.connect(function(err){
-    if(err != null) {
-        res.end('Error connecting to mysql:' + err+'\n');
-        }
-    });
-
+/*connection.connect(function(err){
+    if(err) {
+        console.error('Error connecting to mysql:' + err+'\n');
+    }
+    console.log('Connected as ID ' + connection.threadId);
+});
+*/
 app.configure(function () {
     app.use(multer({
         dest: './static/uploads/',
@@ -48,24 +51,24 @@ app.post('/api/upload', function (req, res) {
     })
     .on('record', function(row,index){
         var record = row;
-        var query = connection.query(sql, [record], function(err, result) {
-            console.timeEnd('Upload');
-        });
-        connection.query(sql, function(err, rows){
-        // There was a error or not?
-        if(err != null) {
-            res.end("Query error:" + err);
-        } else {
-            // Shows the result on console window
-            console.log(rows[0]);
-            res.end("Success!");
-
-        }
+        async.forever(function(callback) {
+    pool.getConnection(function (err, connection) {
+        if(err) throw err;
+            connection.query(sql, [record], function(err, rows, fields) {
+                    connection.release(callback);
+                    if (err) throw err;
+                    //console.log('The solution is: ', rows[0].solution);
+                });
+        });  
+    },
+    function (err) {
+        console.log(err);  
     });
 })
     .on('end', function(count){
         console.log('Number of records: '+count);
         console.timeEnd('Upload');
+
     })
     .on('error', function(error){
         console.log(error.message);
